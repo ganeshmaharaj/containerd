@@ -28,7 +28,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func createLVMVolume(lvname string, vgname string, lvpoolname string, size string, parent string, kind snapshots.Kind) (string, error) {
+func createLVMVolume(lvname string, vgname string, lvpoolname string, size string, fstype string, parent string, kind snapshots.Kind) (string, error) {
 	cmd := "lvcreate"
 	args := []string{}
 	out := ""
@@ -56,8 +56,8 @@ func createLVMVolume(lvname string, vgname string, lvpoolname string, size strin
 
 	if parent == "" {
 		//This volume is fresh. We should format it.
-		cmd = "mkfs.xfs"
-		args = []string{"-f", "/dev/" + vgname + "/" + lvname}
+		cmd = "mkfs." + fstype
+		args = []string{"/dev/" + vgname + "/" + lvname}
 		out, err = runCommand(cmd, args)
 	}
 

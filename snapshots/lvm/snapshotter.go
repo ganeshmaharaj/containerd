@@ -83,7 +83,7 @@ func NewSnapshotter(ctx context.Context, config *SnapConfig) (snapshots.Snapshot
 	_, err = checkLV(config.VgName, metavolume)
 	if err != nil {
 		// Create a volume to hold the metadata.db file.
-		if _, err = createLVMVolume(metavolume, config.VgName, config.ThinPool, config.ImageSize, "", snapshots.KindUnknown); err != nil {
+		if _, err = createLVMVolume(metavolume, config.VgName, config.ThinPool, config.ImageSize, config.FsType, "", snapshots.KindUnknown); err != nil {
 			return nil, errors.Wrap(err, "Unable to create metadata holding volume")
 		}
 	}
@@ -363,7 +363,7 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		// Create a snapshot from the parent
 		pvol = s.ParentIDs[0]
 	}
-	if _, err := createLVMVolume(s.ID, o.config.VgName, o.config.ThinPool, o.config.ImageSize, pvol, kind); err != nil {
+	if _, err := createLVMVolume(s.ID, o.config.VgName, o.config.ThinPool, o.config.ImageSize, o.config.FsType, pvol, kind); err != nil {
 		log.G(ctx).WithError(err).Warn("Unable to create volume")
 		return nil, errors.Wrap(err, "Unable to create volume")
 	}
