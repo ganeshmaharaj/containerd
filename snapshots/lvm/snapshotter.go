@@ -393,7 +393,9 @@ func (o *snapshotter) mounts(s storage.Snapshot) []mount.Mount {
 	)
 
 	if s.Kind == snapshots.KindView {
-		roFlag = "-oro"
+		roFlag = "ro"
+	} else {
+		roFlag = "rw"
 	}
 
 	source = o.getSnapshotDir(s.ID)
