@@ -20,6 +20,7 @@ package lvm
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -93,7 +94,7 @@ func NewSnapshotter(ctx context.Context, config *SnapConfig) (snapshots.Snapshot
 
 	metavolpath := filepath.Join(config.RootPath, metaVolumeMountName)
 	if errdir := os.MkdirAll(metavolpath, 0700); errdir != nil {
-		return nil, errdir
+		return nil, errors.Wrap(errdir, "Unable to find metavolume path")
 	}
 
 	metamount := []mount.Mount{
@@ -105,11 +106,11 @@ func NewSnapshotter(ctx context.Context, config *SnapConfig) (snapshots.Snapshot
 	}
 
 	if err = mount.All(metamount, metavolpath); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, fmt.Sprintf("unable to mount metavolume %+v", metamount))
 	}
 	ms, err := storage.NewMetaStore(filepath.Join(metavolpath, "metadata.db"))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "unable to create new meta store")
 	}
 
 	return &snapshotter{
@@ -152,7 +153,7 @@ func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 
 	info, err = storage.UpdateInfo(ctx, info, fieldpaths...)
 	if err != nil {
-		if rerr := t.Rollback(); err != nil {
+		if rerr := t.Rollback(); rerr != nil {
 			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
 		}
 		return snapshots.Info{}, err
@@ -368,7 +369,9 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		return nil, errors.Wrap(err, "Unable to create volume")
 	}
 
-	if err := t.Commit(); err != nil {
+	err = t.Commit()
+	t = nil
+	if err != nil {
 		return nil, err
 	}
 
