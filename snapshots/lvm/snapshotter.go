@@ -132,10 +132,8 @@ func (o *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, err
 		return snapshots.Info{}, err
 	}
 	defer func() {
-		if err != nil {
-			if rerr := t.Rollback(); rerr != nil {
-				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
-			}
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
 		}
 	}()
 	_, info, _, err := storage.GetInfo(ctx, key)
@@ -177,10 +175,8 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 		return snapshots.Usage{}, err
 	}
 	defer func() {
-		if err != nil {
-			if rerr := t.Rollback(); rerr != nil {
-				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
-			}
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
 		}
 	}()
 	_, info, usage, err := storage.GetInfo(ctx, key)
@@ -229,12 +225,11 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 		return nil, err
 	}
 	s, err := storage.GetSnapshot(ctx, key)
-	if err != nil {
+	defer func() {
 		if rerr := t.Rollback(); rerr != nil {
 			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 		}
-		return nil, errors.Wrap(err, "failed to get snapshot mount")
-	}
+	}()
 	log.G(ctx).Debugf("Mounts for key %s is %+v", key, o.mounts(s))
 	return o.mounts(s), nil
 }
@@ -338,10 +333,8 @@ func (o *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapsho
 		return err
 	}
 	defer func() {
-		if err != nil {
-			if rerr := t.Rollback(); rerr != nil {
-				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
-			}
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
 		}
 	}()
 	return storage.WalkInfo(ctx, fn)
