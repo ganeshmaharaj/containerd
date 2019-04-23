@@ -132,8 +132,10 @@ func (o *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, err
 		return snapshots.Info{}, err
 	}
 	defer func() {
-		if rerr := t.Rollback(); rerr != nil {
-			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+		if err != nil {
+			if rerr := t.Rollback(); rerr != nil {
+				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+			}
 		}
 	}()
 	_, info, _, err := storage.GetInfo(ctx, key)
@@ -175,11 +177,13 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 		return snapshots.Usage{}, err
 	}
 	defer func() {
-		if rerr := t.Rollback(); err != nil {
-			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+		if err != nil {
+			if rerr := t.Rollback(); rerr != nil {
+				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+			}
 		}
 	}()
-	id, info, usage, err := storage.GetInfo(ctx, key)
+	_, info, usage, err := storage.GetInfo(ctx, key)
 	if err != nil {
 		return snapshots.Usage{}, err
 	}
@@ -190,7 +194,7 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 		}
 		mounts := o.mounts(s)
 		if err = mount.WithTempMount(ctx, mounts, func(root string) error {
-			if du, err = fs.DiskUsage(ctx, o.getSnapshotDir(id)); err != nil {
+			if du, err = fs.DiskUsage(ctx, root); err != nil {
 				return err
 			}
 			usage = snapshots.Usage(du)
@@ -225,10 +229,10 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 		return nil, err
 	}
 	s, err := storage.GetSnapshot(ctx, key)
-	if rerr := t.Rollback(); rerr != nil {
-		log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
-	}
 	if err != nil {
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+		}
 		return nil, errors.Wrap(err, "failed to get snapshot mount")
 	}
 	log.G(ctx).Debugf("Mounts for key %s is %+v", key, o.mounts(s))
@@ -252,7 +256,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	s, err := storage.GetSnapshot(ctx, key)
 	mounts := o.mounts(s)
 	if err = mount.WithTempMount(ctx, mounts, func(root string) error {
-		if du, err = fs.DiskUsage(ctx, o.getSnapshotDir(id)); err != nil {
+		if du, err = fs.DiskUsage(ctx, root); err != nil {
 			return err
 		}
 		usage = snapshots.Usage(du)
@@ -260,16 +264,20 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	}); err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil && t != nil {
+			if rerr := t.Rollback(); rerr != nil {
+				log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+			}
+		}
+	}()
 
 	if _, err = storage.CommitActive(ctx, key, name, usage, opts...); err != nil {
-		if rerr := t.Rollback(); rerr != nil {
-			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
-		}
 		return errors.Wrap(err, "failed to commit snapshot")
 	}
-	if _, err = changepermLV(o.config.VgName, id, true); err != nil {
-		return errors.Wrap(err, "Failed to change permissions on volume")
-	}
+	//if _, err = changepermLV(o.config.VgName, id, true); err != nil {
+	//	return errors.Wrap(err, "Failed to change permissions on volume")
+	//}
 
 	// Deactivate the volume in LVM to free up /dev/dm-XX names on the host
 	if _, err = toggleactivateLV(o.config.VgName, id, false); err != nil {
@@ -284,6 +292,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 		}
 		return err
 	}
+	t = nil
 	return nil
 }
 
@@ -314,11 +323,10 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 	}
 
 	err = t.Commit()
-	t = nil
 	if err != nil {
 		return errors.Wrap(err, "failed to commit")
 	}
-
+	t = nil
 	return nil
 }
 
@@ -330,8 +338,10 @@ func (o *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapsho
 		return err
 	}
 	defer func() {
-		if rerr := t.Rollback(); rerr != nil {
-			log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+		if err != nil {
+			if rerr := t.Rollback(); rerr != nil {
+				log.G(ctx).WithError(rerr).Warn("Failed to rollback transaction")
+			}
 		}
 	}()
 	return storage.WalkInfo(ctx, fn)
@@ -370,10 +380,10 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	}
 
 	err = t.Commit()
-	t = nil
 	if err != nil {
 		return nil, err
 	}
+	t = nil
 
 	log.G(ctx).Debugf("Mounts for key %s is %+v", key, o.mounts(s))
 	return o.mounts(s), nil
