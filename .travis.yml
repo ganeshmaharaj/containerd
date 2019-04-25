@@ -26,6 +26,8 @@ addons:
       - libprotobuf-dev
       - socat
       - libseccomp-dev
+      - lvm2
+      - thin-provisioning-tools
 
 env:
   - TRAVIS_GOOS=linux TEST_RUNTIME=io.containerd.runc.v1 TRAVIS_CGO_ENABLED=1

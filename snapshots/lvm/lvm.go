@@ -19,11 +19,11 @@
 package lvm
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,6 +32,8 @@ import (
 )
 
 const retries = 10
+
+var mutex sync.Mutex
 
 func createLVMVolume(lvname string, vgname string, lvpoolname string, size string, fstype string, parent string, kind snapshots.Kind) (string, error) {
 	cmd := "lvcreate"
@@ -80,6 +82,7 @@ func createLVMVolume(lvname string, vgname string, lvpoolname string, size strin
 }
 
 func removeLVMVolume(lvname string, vgname string) (string, error) {
+
 	// Unmount volume from the system
 	cmd := "blkdeactivate"
 	args := []string{"-u", filepath.Join("/dev", vgname, lvname)}
@@ -89,6 +92,31 @@ func removeLVMVolume(lvname string, vgname string) (string, error) {
 	}
 	cmd = "lvremove"
 	args = []string{"-y", vgname + "/" + lvname}
+
+	return runCommand(cmd, args)
+}
+
+func createVolumeGroup(drive string, vgname string) (string, error) {
+	cmd := "vgcreate"
+	args := []string{vgname, drive}
+
+	return runCommand(cmd, args)
+}
+
+func createLogicalThinPool(vgname string, lvpool string) (string, error) {
+	cmd := "lvcreate"
+	args := []string{"--thinpool", lvpool, "--extents", "90%FREE", vgname}
+
+	out, err := runCommand(cmd, args)
+	if err != nil && (err.Error() == "exit status 5") {
+		return out, nil
+	}
+	return out, err
+}
+
+func deleteVolumeGroup(vgname string) (string, error) {
+	cmd := "vgremove"
+	args := []string{"-y", vgname}
 
 	return runCommand(cmd, args)
 }
@@ -126,13 +154,30 @@ func toggleactivateLV(vgname string, lvname string, activate bool) (string, erro
 	return output, err
 }
 
+func toggleactivateVG(vgname string, activate bool) (string, error) {
+	cmd := "vgchange"
+	args := []string{"-K", vgname, "-a"}
+	output := ""
+	var err error
+
+	if activate {
+		args = append(args, "y")
+	} else {
+		args = append(args, "n")
+	}
+	output, err = runCommand(cmd, args)
+	return output, err
+}
+
 func runCommand(cmd string, args []string) (string, error) {
 	var output []byte
 	ret := 0
 	var err error
+	mutex.Lock()
+	defer mutex.Unlock()
 
 	// Pass context down and log into the tool instead of this.
-	fmt.Printf("Running command %s with args: %s\n", cmd, args)
+	// fmt.Printf("Running command %s with args: %s\n", cmd, args)
 	for ret < retries {
 		c := exec.Command(cmd, args...)
 		c.Env = os.Environ()
