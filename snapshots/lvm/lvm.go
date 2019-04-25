@@ -19,7 +19,6 @@
 package lvm
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,6 +96,31 @@ func removeLVMVolume(vgname string, lvname string) (string, error) {
 	return runCommand(cmd, args)
 }
 
+func createVolumeGroup(drive string, vgname string) (string, error) {
+	cmd := "vgcreate"
+	args := []string{vgname, drive}
+
+	return runCommand(cmd, args)
+}
+
+func createLogicalThinPool(vgname string, lvpool string) (string, error) {
+	cmd := "lvcreate"
+	args := []string{"--thinpool", lvpool, "--extents", "90%FREE", vgname}
+
+	out, err := runCommand(cmd, args)
+	if err != nil && (err.Error() == "exit status 5") {
+		return out, nil
+	}
+	return out, err
+}
+
+func deleteVolumeGroup(vgname string) (string, error) {
+	cmd := "vgremove"
+	args := []string{"-y", vgname}
+
+	return runCommand(cmd, args)
+}
+
 func checkVG(vgname string) (string, error) {
 	var err error
 	output := ""
@@ -143,13 +167,28 @@ func toggleactivateLV(vgname string, lvname string, activate bool) (string, erro
 	return output, err
 }
 
+func toggleactivateVG(vgname string, activate bool) (string, error) {
+	cmd := "vgchange"
+	args := []string{"-K", vgname, "-a"}
+	output := ""
+	var err error
+
+	if activate {
+		args = append(args, "y")
+	} else {
+		args = append(args, "n")
+	}
+	output, err = runCommand(cmd, args)
+	return output, err
+}
+
 func runCommand(cmd string, args []string) (string, error) {
 	var output []byte
 	ret := 0
 	var err error
 
 	// Pass context down and log into the tool instead of this.
-	fmt.Printf("Running command %s with args: %s\n", cmd, args)
+	// fmt.Printf("Running command %s with args: %s\n", cmd, args)
 	for ret < retries {
 		c := exec.Command(cmd, args...)
 		c.Env = os.Environ()
