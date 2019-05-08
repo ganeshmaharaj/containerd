@@ -33,13 +33,29 @@ import (
 
 const retries = 10
 
-var mutex sync.Mutex
+func formatVolume(vgname string, lvname string, fstype string) error {
+	var mkfsArgs []string
+	switch fstype {
+	case "ext4":
+		mkfsArgs = append(mkfsArgs, "-E", "nodiscard,lazy_itable_init=0,lazy_journal_init=0")
+	case "xfs":
+		mkfsArgs = append(mkfsArgs, "-K")
+	default:
+	}
 
-func createLVMVolume(lvname string, vgname string, lvpoolname string, size string, fstype string, parent string, kind snapshots.Kind) (string, error) {
+	cmd := "mkfs." + fstype
+	mkfsArgs = append(mkfsArgs, filepath.Join("/dev/", vgname, lvname))
+	_, err := runCommand(cmd, mkfsArgs)
+	return err
+}
+
+func createLVMVolume(lock sync.Mutex, lvname string, vgname string, lvpoolname string, size string, parent string, kind snapshots.Kind) (string, error) {
 	cmd := "lvcreate"
 	args := []string{}
 	out := ""
 	var err error
+	lock.Lock()
+	defer lock.Unlock()
 
 	if parent != "" {
 		args = append(args, "--name", lvname, "--snapshot", vgname+"/"+parent)
@@ -58,36 +74,19 @@ func createLVMVolume(lvname string, vgname string, lvpoolname string, size strin
 	if out, err = runCommand(cmd, args); err != nil {
 		return out, errors.Wrap(err, "Unable to create volume")
 	}
-
-	if out, err = toggleactivateLV(vgname, lvname, true); err != nil {
-		return out, errors.Wrap(err, "Unable to activate thin volume")
-	}
-
-	if parent == "" {
-		var mkfsArgs []string
-		switch fstype {
-		case "ext4":
-			mkfsArgs = append(mkfsArgs, "-E", "nodiscard,lazy_itable_init=0,lazy_journal_init=0")
-		case "xfs":
-			mkfsArgs = append(mkfsArgs, "-K")
-		default:
-		}
-		//This volume is fresh. We should format it.
-		cmd = "mkfs." + fstype
-		mkfsArgs = append(mkfsArgs, filepath.Join("/dev/", vgname, lvname))
-		out, err = runCommand(cmd, mkfsArgs)
-	}
-
 	return out, err
 }
 
-func removeLVMVolume(lvname string, vgname string) (string, error) {
+func removeLVMVolume(lock sync.Mutex, lvname string, vgname string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Unmount volume from the system
-	cmd := "blkdeactivate"
-	args := []string{"-u", filepath.Join("/dev", vgname, lvname)}
+	cmd := "umount"
+	args := []string{"--lazy", "--force", "--all-targets", filepath.Join("/dev", vgname, lvname)}
 
-	if output, err := runCommand(cmd, args); err != nil {
+	output, err := runCommand(cmd, args)
+	if err != nil && !strings.Contains(output, "not mounted") {
 		return output, errors.Wrap(err, "Unable to unmount volume")
 	}
 	cmd = "lvremove"
@@ -96,14 +95,18 @@ func removeLVMVolume(lvname string, vgname string) (string, error) {
 	return runCommand(cmd, args)
 }
 
-func createVolumeGroup(drive string, vgname string) (string, error) {
+func createVolumeGroup(lock sync.Mutex, drive string, vgname string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	cmd := "vgcreate"
 	args := []string{vgname, drive}
 
 	return runCommand(cmd, args)
 }
 
-func createLogicalThinPool(vgname string, lvpool string) (string, error) {
+func createLogicalThinPool(lock sync.Mutex, vgname string, lvpool string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	cmd := "lvcreate"
 	args := []string{"--thinpool", lvpool, "--extents", "90%FREE", vgname}
 
@@ -114,14 +117,18 @@ func createLogicalThinPool(vgname string, lvpool string) (string, error) {
 	return out, err
 }
 
-func deleteVolumeGroup(vgname string) (string, error) {
+func deleteVolumeGroup(lock sync.Mutex, vgname string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	cmd := "vgremove"
 	args := []string{"-y", vgname}
 
 	return runCommand(cmd, args)
 }
 
-func checkVG(vgname string) (string, error) {
+func checkVG(lock sync.Mutex, vgname string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	var err error
 	output := ""
 	cmd := "vgs"
@@ -130,7 +137,9 @@ func checkVG(vgname string) (string, error) {
 	return output, err
 }
 
-func checkLV(vgname string, lvname string) (string, error) {
+func checkLV(lock sync.Mutex, vgname string, lvname string) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	var err error
 	output := ""
 	cmd := "lvs"
@@ -139,7 +148,9 @@ func checkLV(vgname string, lvname string) (string, error) {
 	return output, err
 }
 
-func toggleactivateLV(vgname string, lvname string, activate bool) (string, error) {
+func toggleactivateLV(lock sync.Mutex, vgname string, lvname string, activate bool) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	cmd := "lvchange"
 	args := []string{"-K", vgname + "/" + lvname, "-a"}
 	output := ""
@@ -154,7 +165,9 @@ func toggleactivateLV(vgname string, lvname string, activate bool) (string, erro
 	return output, err
 }
 
-func toggleactivateVG(vgname string, activate bool) (string, error) {
+func toggleactivateVG(lock sync.Mutex, vgname string, activate bool) (string, error) {
+	lock.Lock()
+	defer lock.Unlock()
 	cmd := "vgchange"
 	args := []string{"-K", vgname, "-a"}
 	output := ""
@@ -173,8 +186,6 @@ func runCommand(cmd string, args []string) (string, error) {
 	var output []byte
 	ret := 0
 	var err error
-	mutex.Lock()
-	defer mutex.Unlock()
 
 	// Pass context down and log into the tool instead of this.
 	// fmt.Printf("Running command %s with args: %s\n", cmd, args)

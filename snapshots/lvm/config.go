@@ -20,6 +20,7 @@ package lvm
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/docker/go-units"
 	"github.com/pkg/errors"
@@ -45,6 +46,8 @@ type SnapConfig struct {
 	// Characteristics of the volumes that we will create
 	ImageSize string `toml:"img_size"`
 	FsType    string `toml:"fs_type"`
+
+	lock sync.Mutex
 }
 
 // Validate all the necessary values exist and if not, the defaults are applied

@@ -49,6 +49,8 @@ func TestLVMSnapshotterSuite(t *testing.T) {
 		var vgName string
 		var lvPool string
 		var err error
+		config := &SnapConfig{}
+		var lock = config.lock
 		//imagePath, loopDevice, err = createSparseDrive(t, root)
 		loopDevice, loopCleanFn, err := loopback.New(loopbackSize)
 		assert.NilError(t, err)
@@ -60,19 +62,18 @@ func TestLVMSnapshotterSuite(t *testing.T) {
 		vgName = vgNamePrefix + suffix
 		lvPool = lvPoolPrefix + suffix
 
-		output, err := createVolumeGroup(loopDevice, vgName)
+		output, err := createVolumeGroup(config.lock, loopDevice, vgName)
 		assert.NilError(t, err, output)
 
-		output, err = toggleactivateVG(vgName, true)
+		output, err = toggleactivateVG(config.lock, vgName, true)
 		assert.NilError(t, err, output)
 
-		output, err = createLogicalThinPool(vgName, lvPool)
+		output, err = createLogicalThinPool(config.lock, vgName, lvPool)
 		assert.NilError(t, err, output)
 
-		config := &SnapConfig{
-			VgName:   vgName,
-			ThinPool: lvPool,
-		}
+		config.VgName = vgName
+		config.ThinPool = lvPool
+
 		err = config.Validate(root)
 		assert.NilError(t, err)
 
@@ -81,7 +82,7 @@ func TestLVMSnapshotterSuite(t *testing.T) {
 
 		return snap, func() error {
 			snap.Close()
-			deleteVolumeGroup(vgName)
+			deleteVolumeGroup(lock, vgName)
 			loopCleanFn()
 			return nil
 		}, nil
